@@ -1,0 +1,81 @@
+---
+title: "Calculus Dashboard"
+author: "Charles Lang"
+date: "February 19, 2016"
+output: html_document
+---
+##Packages
+```{r}
+library(tidyr, dplyr, ggplot2, plotly)
+```
+
+##Input Data
+```{r}
+QUIZ2 <- read.table("~/Documents/NYU/Calculus/Data/Quiz Results/quiz_results_w2.csv", sep = ",", header = TRUE)
+
+QUIZ3 <- read.table("~/Documents/NYU/Calculus/Data/Quiz Results/quiz_results_w3.csv", sep = ",", header = TRUE)
+
+SCORM1 <- read.table("~/Documents/NYU/Calculus/Data/SCORM/AllInteractions.csv", sep = ",", header = TRUE)
+
+SCORM2 <- read.table("~/Documents/NYU/Calculus/Data/SCORM/All_launches.csv", sep = ",", header = TRUE)
+
+SURVEY <- read.table("~/Documents/NYU/Calculus/Data/Survey Results/survey_results_brief.csv", sep = ",", header = TRUE)
+
+```
+##Generate new variables
+```{r}
+QUIZ2$per.correct <- QUIZ2$total_points/8
+
+QUIZ3$per.correct <- QUIZ3$total_points/10
+
+SURVEY <- tidyr::separate(SURVEY, V3, c("last", "first", "middle"))
+
+#Separate min and second in latency measure
+SCORM1 <- tidyr::separate(SCORM1, Latency, c("min", "sec"), extra = "drop", fill = "left")
+#Trim "m" & "s" from new measures
+SCORM1$min <- as.numeric(sub("m", "", SCORM1$min))
+SCORM1$sec <- as.numeric(sub("s", "", SCORM1$sec))
+#Generate single measure from seconds
+SCORM1$lat.sec <-  ifelse(is.na(SCORM1$min), SCORM1$sec, SCORM1$sec + SCORM1$min*60)
+
+#Generate Module measures
+SCORM_time <- SCORM2 %>% group_by(last) %>% dplyr::summarise(mean(total_time_s))
+SCORM2$attempts <- 1
+SCORM_attempts <- SCORM2 %>% group_by(last) %>% dplyr::summarise(sum(attempts))
+SCORM_lat <- SCORM1 %>% group_by(Last.Name) %>% dplyr::summarise(mean(lat.sec))
+
+#Switch names for famous names
+FAM <- read.table("~/Documents/NYU/Calculus/Data/Famous People/famous.csv", sep = ",", header = TRUE, stringsAsFactors = T)
+QUIZ$new_name <- sample(FAM$name, 127, replace = F)
+
+#Time module was accessed
+SCORM1 <- tidyr::separate(SCORM1, Response.Time, c("date", "time"), sep = " ")
+SCORM_date <- dplyr::filter(SCORM1, item == 1) %>% dplyr::select(Last.Name, date, time)
+
+#Module accuracy
+SCORM_acc <- SCORM1 %>% group_by(Last.Name) %>% dplyr::summarise(mean(correct))
+
+#Names
+CALC <- tidyr::separate(CALC, name.x, c("Last.Name", "first", "middle"))
+
+```
+##Create & Merge files
+```{r}
+QUIZ <-  dplyr::full_join(QUIZ3, QUIZ2, by = "stid")
+QUIZ <- QUIZ[, c(1:3, 9, 16)]
+names(QUIZ) <- c("name", "stid", "email", "quiz_3", "quiz_2")
+
+names(SCORM_attempts) <- c("Last.Name", "sum(attempts)")
+names(SCORM_time) <- c("Last.Name", "mean(total_time_s)")
+
+SCORM <- dplyr::full_join(SCORM_acc, SCORM_attempts, by = "Last.Name")
+SCORM <- dplyr::full_join(SCORM, SCORM_date, by = "Last.Name")
+SCORM <- dplyr::full_join(SCORM, SCORM_lat, by = "Last.Name")
+SCORM <- dplyr::full_join(SCORM, SCORM_time, by = "Last.Name")
+
+CALC <- dplyr::left_join(QUIZ, SURVEY, by = "email")
+
+CALC <- dplyr::full_join(SCORM, CALC, by = "Last.Name")
+CALC$new_name <- sample(FAM$name, 127, replace = F)
+```
+
