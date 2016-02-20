@@ -8,7 +8,6 @@ output: html_document
 ```{r}
 library(tidyr, dplyr, ggplot2, plotly)
 ```
-
 ##Input Data
 ```{r}
 #In class quiz data
@@ -91,7 +90,6 @@ MOD <- dplyr::full_join(MOD, LCH_time_spent, by = "Learner.Id")
 
 
 ```
-
 ##Merge three sources
 ```{r}
 #Merge Module with Quiz
@@ -108,3 +106,10 @@ CALC$new_name <- sample(FAM$name, 144, replace = F)
 CALC <- CALC[,c(4:11,16:17,21:31)]
 
 ```
+##Density Plots by Demographics
+```{r}
+library(plotly)
+
+
+```
+
