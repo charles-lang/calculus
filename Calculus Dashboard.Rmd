@@ -11,25 +11,106 @@ library(tidyr, dplyr, ggplot2, plotly)
 
 ##Input Data
 ```{r}
+#In class quiz data
 QUIZ2 <- read.table("~/Documents/NYU/Calculus/Data/Quiz Results/quiz_results_w2.csv", sep = ",", header = TRUE)
-
 QUIZ3 <- read.table("~/Documents/NYU/Calculus/Data/Quiz Results/quiz_results_w3.csv", sep = ",", header = TRUE)
 
-SCORM1 <- read.table("~/Documents/NYU/Calculus/Data/SCORM/AllInteractions.csv", sep = ",", header = TRUE)
-
-SCORM2 <- read.table("~/Documents/NYU/Calculus/Data/SCORM/All_launches.csv", sep = ",", header = TRUE)
-
+#SIS Data/Demographics
 SURVEY <- read.table("~/Documents/NYU/Calculus/Data/Survey Results/survey_results_brief.csv", sep = ",", header = TRUE)
 
+#Module completion
+#Import and bind all files
+setwd("~/Documents/NYU/Calculus/Data/SCORM/All Launches/") #Set to your working directory
+temp <- list.files(pattern="*.csv")
+LCH <- do.call(rbind, lapply(temp, function(x) read.csv(x, stringsAsFactors = FALSE)))
+
+#Module latency
+setwd("~/Documents/NYU/Calculus/Data/SCORM/Interactions/") #Set to your working directory
+temp <- list.files(pattern="*.csv")
+INT <- do.call(rbind, lapply(temp, function(x) read.csv(x, stringsAsFactors = FALSE)))
+
 ```
-##Generate new variables
+##Quiz Data Processing
 ```{r}
 QUIZ2$per.correct <- QUIZ2$total_points/8
 
 QUIZ3$per.correct <- QUIZ3$total_points/10
 
-SURVEY <- tidyr::separate(SURVEY, V3, c("last", "first", "middle"))
+QUIZ <-  dplyr::full_join(QUIZ3, QUIZ2, by = "stid")
+QUIZ <- QUIZ[, c(1:3, 9, 16)]
+names(QUIZ) <- c("name", "stid", "email", "quiz_3", "quiz_2")
+QUIZ <- tidyr::separate(QUIZ, name, c("Last.Name", "First.Name", "middle"), extra = "drop", fill = "right")
 
+```
+##Demographic processing
+```{r}
+SURVEY <- tidyr::separate(SURVEY, name, c("Last.Name", "First.Name", "middle"), extra = "drop", fill = "right")
+```
+##Module Processing
+```{r}
+#Processing SCORM data for number of launches, average latency, completion, time of first launch
+
+#Launches
+LCH$launch <- 1
+LCH_launch <- LCH %>% group_by(Learner.Id) %>% dplyr::summarise(sum(launch))
+#Lauches per module
+LCH_launch$av_lch <- LCH_launch$`sum(launch)`/10  
+
+#Completion
+LCH$complete <- ifelse(LCH$Completion == "complete", 1, 0)
+LCH_complete <- LCH %>% group_by(Learner.Id) %>% dplyr::summarise(sum(complete))
+LCH_complete$av_comp <- LCH_complete$`sum(complete)`/10
+
+#Time
+LCH_time_spent <- LCH %>% group_by(Learner.Id) %>% dplyr::summarise(sum(Total.Time..seconds.))
+LCH_time_spent$av_time_spent <- LCH_time_spent$`sum(Total.Time..seconds.)`/10
+
+#Latency
+#Separate min and second in latency measure
+INT <- tidyr::separate(INT, Latency, c("min", "sec"), extra = "drop", fill = "left")
+#Trim "m" & "s" from new measures
+INT$min <- as.numeric(sub("m", "", INT$min))
+INT$sec <- as.numeric(sub("s", "",INT$sec))
+#Generate single measure from seconds
+INT$lat.sec <-  ifelse(is.na(INT$min), INT$sec, INT$sec + INT$min*60)
+#Average latency per student
+INT_lat <- INT %>% group_by(Learner.Id) %>% dplyr::summarise(mean(lat.sec))
+#Trim average latency to 250 seconds
+INT_lat$trim_lat <- ifelse(INT_lat$`mean(lat.sec)` > 250, 250, INT_lat$`mean(lat.sec)`)
+
+#Create ID file
+INT_id <- INT[, 2:4]
+INT_id <- dplyr::distinct(INT_id)
+
+#Merge all module data
+MOD <- dplyr::full_join(INT_id, INT_lat, by = "Learner.Id")
+MOD <- dplyr::full_join(MOD, LCH_complete, by = "Learner.Id")
+MOD <- dplyr::full_join(MOD, LCH_launch, by = "Learner.Id")
+MOD <- dplyr::full_join(MOD, LCH_time_spent, by = "Learner.Id")
+
+
+
+```
+
+##Merge three sources
+```{r}
+#Merge Module with Quiz
+MOD_QUIZ <- dplyr::right_join(MOD, QUIZ, by = "Last.Name", "First.Name")
+
+#Merge Mod-Quiz with Demographics
+CALC <- dplyr::left_join(MOD_QUIZ, SURVEY, by = "Last.Name", "First.Name")
+
+#Switch names for famous names
+FAM <- read.table("~/Documents/NYU/Calculus/Data/Famous People/famous.csv", sep = ",", header = TRUE, stringsAsFactors = T)
+CALC$new_name <- sample(FAM$name, 144, replace = F)
+
+#Remove identifiers
+CALC <- CALC[,c(4:11,16:17,21:31)]
+
+```
+
+#Offcuts
+```{r}
 #Separate min and second in latency measure
 SCORM1 <- tidyr::separate(SCORM1, Latency, c("min", "sec"), extra = "drop", fill = "left")
 #Trim "m" & "s" from new measures
@@ -44,10 +125,6 @@ SCORM2$attempts <- 1
 SCORM_attempts <- SCORM2 %>% group_by(last) %>% dplyr::summarise(sum(attempts))
 SCORM_lat <- SCORM1 %>% group_by(Last.Name) %>% dplyr::summarise(mean(lat.sec))
 
-#Switch names for famous names
-FAM <- read.table("~/Documents/NYU/Calculus/Data/Famous People/famous.csv", sep = ",", header = TRUE, stringsAsFactors = T)
-QUIZ$new_name <- sample(FAM$name, 127, replace = F)
-
 #Time module was accessed
 SCORM1 <- tidyr::separate(SCORM1, Response.Time, c("date", "time"), sep = " ")
 SCORM_date <- dplyr::filter(SCORM1, item == 1) %>% dplyr::select(Last.Name, date, time)
@@ -58,9 +135,6 @@ SCORM_acc <- SCORM1 %>% group_by(Last.Name) %>% dplyr::summarise(mean(correct))
 #Names
 CALC <- tidyr::separate(CALC, name.x, c("Last.Name", "first", "middle"))
 
-```
-##Create & Merge files
-```{r}
 QUIZ <-  dplyr::full_join(QUIZ3, QUIZ2, by = "stid")
 QUIZ <- QUIZ[, c(1:3, 9, 16)]
 names(QUIZ) <- c("name", "stid", "email", "quiz_3", "quiz_2")
